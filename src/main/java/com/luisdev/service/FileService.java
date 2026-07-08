@@ -137,4 +137,68 @@ public class FileService {
                         }
                 );
     }
+
+    @Transactional
+    public Folder createFolder(String name, UUID parentId, UUID userId) {
+        User owner = userRepository.findById(userId).orElseThrow();
+        Folder parent = null;
+        if (parentId != null) {
+            parent = folderRepository.findById(parentId).orElseThrow();
+            if (!parent.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+        }
+        Folder folder = new Folder();
+        folder.setName(name);
+        folder.setParent(parent);
+        folder.setOwner(owner);
+        return folderRepository.save(folder);
+    }
+
+    @Transactional
+    public void renameFolder(UUID folderId, String newName, UUID userId) {
+        Folder folder = folderRepository.findById(folderId).orElseThrow();
+        if (!folder.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+        folder.setName(newName);
+        folderRepository.save(folder);
+    }
+
+    @Transactional
+    public void deleteFolder(UUID folderId, UUID userId) {
+        Folder folder = folderRepository.findById(folderId).orElseThrow();
+        if (!folder.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+        folderRepository.delete(folder);
+    }
+
+    @Transactional
+    public void renameFile(UUID fileId, String newName, UUID userId) {
+        FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow();
+        if (!file.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+        file.setOriginalName(newName);
+        fileMetadataRepository.save(file);
+    }
+
+    @Transactional
+    public void deleteFile(UUID fileId, UUID userId) {
+        FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow();
+        if (!file.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+        fileMetadataRepository.delete(file);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Map<String, Object> listContents(UUID folderId, UUID userId) {
+        java.util.List<Folder> folders;
+        java.util.List<FileMetadata> files;
+        if (folderId == null) {
+            folders = folderRepository.findByOwnerIdAndParentIsNull(userId);
+            files = fileMetadataRepository.findByOwnerIdAndFolderIsNull(userId);
+        } else {
+            Folder folder = folderRepository.findById(folderId).orElseThrow();
+            if (!folder.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+            folders = folderRepository.findByOwnerIdAndParentId(userId, folderId);
+            files = fileMetadataRepository.findByOwnerIdAndFolderId(userId, folderId);
+        }
+        java.util.Map<String, Object> contents = new java.util.HashMap<>();
+        contents.put("folders", folders);
+        contents.put("files", files);
+        return contents;
+    }
 }
