@@ -1,9 +1,12 @@
 package com.luisdev.service;
 
+import io.minio.BucketExistsArgs;
 import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
 import io.minio.http.Method;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +31,22 @@ public class MinioService {
         .credentials(accessKey, secretKey)
         .build();
     this.bucketName = bucketName;
+  }
+
+  @PostConstruct
+  public void initBucket() {
+    try {
+      boolean found = minioClient.bucketExists(
+          BucketExistsArgs.builder().bucket(bucketName).build());
+
+      if (!found) {
+        minioClient.makeBucket(
+            MakeBucketArgs.builder().bucket(bucketName).build());
+        System.out.println("Bucket de MinIO '" + bucketName + "' creado exitosamente.");
+      }
+    } catch (Exception e) {
+      throw new RuntimeException("Error al verificar o crear el bucket de MinIO", e);
+    }
   }
 
   public String generatePresignedUploadUrl(String minioObjectId) {
