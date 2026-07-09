@@ -8,6 +8,8 @@ import com.luisdev.domain.enums.FilePermission;
 import com.luisdev.domain.enums.FileStatus;
 import com.luisdev.dto.FileInitUploadRequest;
 import com.luisdev.dto.FileInitUploadResponse;
+import com.luisdev.dto.FileResponse;
+import com.luisdev.dto.FolderResponse;
 import com.luisdev.repository.FileMetadataRepository;
 import com.luisdev.repository.FileShareRepository;
 import com.luisdev.repository.FolderRepository;
@@ -16,189 +18,226 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class FileService {
 
-    private final FileMetadataRepository fileMetadataRepository;
-    private final FolderRepository folderRepository;
-    private final UserRepository userRepository;
-    private final FileShareRepository fileShareRepository;
-    private final MinioService minioService;
+  private final FileMetadataRepository fileMetadataRepository;
+  private final FolderRepository folderRepository;
+  private final UserRepository userRepository;
+  private final FileShareRepository fileShareRepository;
+  private final MinioService minioService;
 
-    public FileService(FileMetadataRepository fileMetadataRepository,
-                       FolderRepository folderRepository,
-                       UserRepository userRepository,
-                       FileShareRepository fileShareRepository,
-                       MinioService minioService) {
-        this.fileMetadataRepository = fileMetadataRepository;
-        this.folderRepository = folderRepository;
-        this.userRepository = userRepository;
-        this.fileShareRepository = fileShareRepository;
-        this.minioService = minioService;
+  public FileService(FileMetadataRepository fileMetadataRepository,
+      FolderRepository folderRepository,
+      UserRepository userRepository,
+      FileShareRepository fileShareRepository,
+      MinioService minioService) {
+    this.fileMetadataRepository = fileMetadataRepository;
+    this.folderRepository = folderRepository;
+    this.userRepository = userRepository;
+    this.fileShareRepository = fileShareRepository;
+    this.minioService = minioService;
+  }
+
+  @Transactional
+  public FileInitUploadResponse initiateUpload(FileInitUploadRequest request, UUID userId) {
+    User owner = userRepository.findById(userId)
+        .orElseThrow(() -> new EntityNotFoundException("User not found"));
+
+    Folder folder = null;
+    if (request.getFolderId() != null) {
+      folder = folderRepository.findById(request.getFolderId())
+          .orElseThrow(() -> new EntityNotFoundException("Folder not found"));
+
+      if (!folder.getOwner().getId().equals(userId)) {
+        throw new SecurityException("User does not have access to this folder");
+      }
     }
 
-    @Transactional
-    public FileInitUploadResponse initiateUpload(FileInitUploadRequest request, UUID userId) {
-        User owner = userRepository.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException("User not found"));
+    String minioObjectId = UUID.randomUUID().toString();
 
-        Folder folder = null;
-        if (request.getFolderId() != null) {
-            folder = folderRepository.findById(request.getFolderId())
-                    .orElseThrow(() -> new EntityNotFoundException("Folder not found"));
-            
-            if (!folder.getOwner().getId().equals(userId)) {
-                throw new SecurityException("User does not have access to this folder");
-            }
-        }
+    FileMetadata fileMetadata = FileMetadata.builder()
+        .originalName(request.getOriginalName())
+        .minioObjectId(minioObjectId)
+        .sizeBytes(request.getSizeBytes())
+        .mimeType(request.getMimeType())
+        .folder(folder)
+        .owner(owner)
+        .status(FileStatus.PENDING)
+        .build();
 
-        String minioObjectId = UUID.randomUUID().toString();
+    fileMetadata = fileMetadataRepository.save(fileMetadata);
 
-        FileMetadata fileMetadata = FileMetadata.builder()
-                .originalName(request.getOriginalName())
-                .minioObjectId(minioObjectId)
-                .sizeBytes(request.getSizeBytes())
-                .mimeType(request.getMimeType())
-                .folder(folder)
-                .owner(owner)
-                .status(FileStatus.PENDING)
-                .build();
+    String uploadUrl = minioService.generatePresignedUploadUrl(minioObjectId);
 
-        fileMetadata = fileMetadataRepository.save(fileMetadata);
+    return FileInitUploadResponse.builder()
+        .fileId(fileMetadata.getId())
+        .uploadUrl(uploadUrl)
+        .build();
+  }
 
-        String uploadUrl = minioService.generatePresignedUploadUrl(minioObjectId);
+  @Transactional
+  public void confirmUpload(UUID fileId, UUID userId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId)
+        .orElseThrow(() -> new EntityNotFoundException("File not found"));
 
-        return FileInitUploadResponse.builder()
-                .fileId(fileMetadata.getId())
-                .uploadUrl(uploadUrl)
-                .build();
+    if (!file.getOwner().getId().equals(userId)) {
+      throw new SecurityException("User does not own this file");
     }
 
-    @Transactional
-    public void confirmUpload(UUID fileId, UUID userId) {
-        FileMetadata file = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new EntityNotFoundException("File not found"));
+    file.setStatus(FileStatus.UPLOADED);
+    fileMetadataRepository.save(file);
+  }
 
-        if (!file.getOwner().getId().equals(userId)) {
-            throw new SecurityException("User does not own this file");
-        }
+  @Transactional(readOnly = true)
+  public String getDownloadUrl(UUID fileId, UUID userId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId)
+        .orElseThrow(() -> new EntityNotFoundException("File not found"));
 
-        file.setStatus(FileStatus.UPLOADED);
-        fileMetadataRepository.save(file);
+    boolean isOwner = file.getOwner().getId().equals(userId);
+
+    if (!isOwner) {
+      fileShareRepository.findByFileIdAndSharedWithId(fileId, userId)
+          .orElseThrow(() -> new SecurityException("User does not have access to download this file"));
     }
 
-    @Transactional(readOnly = true)
-    public String getDownloadUrl(UUID fileId, UUID userId) {
-        FileMetadata file = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new EntityNotFoundException("File not found"));
-
-        boolean isOwner = file.getOwner().getId().equals(userId);
-        
-        if (!isOwner) {
-            fileShareRepository.findByFileIdAndSharedWithId(fileId, userId)
-                    .orElseThrow(() -> new SecurityException("User does not have access to download this file"));
-        }
-
-        if (file.getStatus() != FileStatus.UPLOADED) {
-            throw new IllegalStateException("File is not fully uploaded yet");
-        }
-
-        return minioService.generatePresignedDownloadUrl(file.getMinioObjectId(), file.getOriginalName());
+    if (file.getStatus() != FileStatus.UPLOADED) {
+      throw new IllegalStateException("File is not fully uploaded yet");
     }
 
-    @Transactional
-    public void shareFile(UUID fileId, String targetUserEmail, UUID ownerUserId) {
-        FileMetadata file = fileMetadataRepository.findById(fileId)
-                .orElseThrow(() -> new EntityNotFoundException("File not found"));
+    return minioService.generatePresignedDownloadUrl(file.getMinioObjectId(), file.getOriginalName());
+  }
 
-        if (!file.getOwner().getId().equals(ownerUserId)) {
-            throw new SecurityException("User does not own this file");
-        }
+  @Transactional
+  public void shareFile(UUID fileId, String targetUserEmail, UUID ownerUserId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId)
+        .orElseThrow(() -> new EntityNotFoundException("File not found"));
 
-        User targetUser = userRepository.findByEmail(targetUserEmail)
-                .orElseThrow(() -> new EntityNotFoundException("Target user not found"));
-
-        if (targetUser.getId().equals(ownerUserId)) {
-            throw new IllegalArgumentException("Cannot share file with yourself");
-        }
-
-        fileShareRepository.findByFileIdAndSharedWithId(fileId, targetUser.getId())
-                .ifPresentOrElse(
-                        share -> { /* Already shared */ },
-                        () -> {
-                            FileShare share = FileShare.builder()
-                                    .file(file)
-                                    .sharedWith(targetUser)
-                                    .permissions(FilePermission.READ)
-                                    .build();
-                            fileShareRepository.save(share);
-                        }
-                );
+    if (!file.getOwner().getId().equals(ownerUserId)) {
+      throw new SecurityException("User does not own this file");
     }
 
-    @Transactional
-    public Folder createFolder(String name, UUID parentId, UUID userId) {
-        User owner = userRepository.findById(userId).orElseThrow();
-        Folder parent = null;
-        if (parentId != null) {
-            parent = folderRepository.findById(parentId).orElseThrow();
-            if (!parent.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
-        }
-        Folder folder = new Folder();
-        folder.setName(name);
-        folder.setParent(parent);
-        folder.setOwner(owner);
-        return folderRepository.save(folder);
+    User targetUser = userRepository.findByEmail(targetUserEmail)
+        .orElseThrow(() -> new EntityNotFoundException("Target user not found"));
+
+    if (targetUser.getId().equals(ownerUserId)) {
+      throw new IllegalArgumentException("Cannot share file with yourself");
     }
 
-    @Transactional
-    public void renameFolder(UUID folderId, String newName, UUID userId) {
-        Folder folder = folderRepository.findById(folderId).orElseThrow();
-        if (!folder.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
-        folder.setName(newName);
-        folderRepository.save(folder);
-    }
+    fileShareRepository.findByFileIdAndSharedWithId(fileId, targetUser.getId())
+        .ifPresentOrElse(
+            share -> {
+              /* Already shared */ },
+            () -> {
+              FileShare share = FileShare.builder()
+                  .file(file)
+                  .sharedWith(targetUser)
+                  .permissions(FilePermission.READ)
+                  .build();
+              fileShareRepository.save(share);
+            });
+  }
 
-    @Transactional
-    public void deleteFolder(UUID folderId, UUID userId) {
-        Folder folder = folderRepository.findById(folderId).orElseThrow();
-        if (!folder.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
-        folderRepository.delete(folder);
+  @Transactional
+  public FolderResponse createFolder(String name, UUID parentId, UUID userId) {
+    User owner = userRepository.findById(userId).orElseThrow();
+    Folder parent = null;
+    if (parentId != null) {
+      parent = folderRepository.findById(parentId).orElseThrow();
+      if (!parent.getOwner().getId().equals(userId))
+        throw new SecurityException("Acceso denegado");
     }
+    Folder folder = new Folder();
+    folder.setName(name);
+    folder.setParent(parent);
+    folder.setOwner(owner);
+    
+    Folder savedFolder = folderRepository.save(folder);
+    return FolderResponse.builder()
+        .id(savedFolder.getId())
+        .name(savedFolder.getName())
+        .parentId(savedFolder.getParent() != null ? savedFolder.getParent().getId() : null)
+        .createdAt(savedFolder.getCreatedAt())
+        .build();
+  }
 
-    @Transactional
-    public void renameFile(UUID fileId, String newName, UUID userId) {
-        FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow();
-        if (!file.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
-        file.setOriginalName(newName);
-        fileMetadataRepository.save(file);
-    }
+  @Transactional
+  public void renameFolder(UUID folderId, String newName, UUID userId) {
+    Folder folder = folderRepository.findById(folderId).orElseThrow();
+    if (!folder.getOwner().getId().equals(userId))
+      throw new SecurityException("Acceso denegado");
+    folder.setName(newName);
+    folderRepository.save(folder);
+  }
 
-    @Transactional
-    public void deleteFile(UUID fileId, UUID userId) {
-        FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow();
-        if (!file.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
-        fileMetadataRepository.delete(file);
-    }
+  @Transactional
+  public void deleteFolder(UUID folderId, UUID userId) {
+    Folder folder = folderRepository.findById(folderId).orElseThrow();
+    if (!folder.getOwner().getId().equals(userId))
+      throw new SecurityException("Acceso denegado");
+    folderRepository.delete(folder);
+  }
 
-    @Transactional(readOnly = true)
-    public java.util.Map<String, Object> listContents(UUID folderId, UUID userId) {
-        java.util.List<Folder> folders;
-        java.util.List<FileMetadata> files;
-        if (folderId == null) {
-            folders = folderRepository.findByOwnerIdAndParentIsNull(userId);
-            files = fileMetadataRepository.findByOwnerIdAndFolderIsNull(userId);
-        } else {
-            Folder folder = folderRepository.findById(folderId).orElseThrow();
-            if (!folder.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
-            folders = folderRepository.findByOwnerIdAndParentId(userId, folderId);
-            files = fileMetadataRepository.findByOwnerIdAndFolderId(userId, folderId);
-        }
-        java.util.Map<String, Object> contents = new java.util.HashMap<>();
-        contents.put("folders", folders);
-        contents.put("files", files);
-        return contents;
+  @Transactional
+  public void renameFile(UUID fileId, String newName, UUID userId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow();
+    if (!file.getOwner().getId().equals(userId))
+      throw new SecurityException("Acceso denegado");
+    file.setOriginalName(newName);
+    fileMetadataRepository.save(file);
+  }
+
+  @Transactional
+  public void deleteFile(UUID fileId, UUID userId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow();
+    if (!file.getOwner().getId().equals(userId))
+      throw new SecurityException("Acceso denegado");
+    
+    minioService.deleteFileFromMinio(file.getMinioObjectId());
+    fileMetadataRepository.delete(file);
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> listContents(UUID folderId, UUID userId) {
+    List<Folder> folders;
+    List<FileMetadata> files;
+    if (folderId == null) {
+      folders = folderRepository.findByOwnerIdAndParentIsNull(userId);
+      files = fileMetadataRepository.findByOwnerIdAndFolderIsNull(userId);
+    } else {
+      Folder folder = folderRepository.findById(folderId).orElseThrow();
+      if (!folder.getOwner().getId().equals(userId))
+        throw new SecurityException("Acceso denegado");
+      folders = folderRepository.findByOwnerIdAndParentId(userId, folderId);
+      files = fileMetadataRepository.findByOwnerIdAndFolderId(userId, folderId);
     }
+    
+    List<FolderResponse> folderResponses = folders.stream().map(f -> FolderResponse.builder()
+        .id(f.getId())
+        .name(f.getName())
+        .parentId(f.getParent() != null ? f.getParent().getId() : null)
+        .createdAt(f.getCreatedAt())
+        .build()).collect(Collectors.toList());
+
+    List<FileResponse> fileResponses = files.stream().map(f -> FileResponse.builder()
+        .id(f.getId())
+        .originalName(f.getOriginalName())
+        .sizeBytes(f.getSizeBytes())
+        .mimeType(f.getMimeType())
+        .folderId(f.getFolder() != null ? f.getFolder().getId() : null)
+        .createdAt(f.getCreatedAt())
+        .status(f.getStatus())
+        .build()).collect(Collectors.toList());
+
+    Map<String, Object> contents = new HashMap<>();
+    contents.put("folders", folderResponses);
+    contents.put("files", fileResponses);
+    return contents;
+  }
 }

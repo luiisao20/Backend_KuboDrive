@@ -1,7 +1,7 @@
 package com.luisdev.controller;
 
-import com.luisdev.domain.entity.Folder;
 import com.luisdev.dto.FolderRequest;
+import com.luisdev.dto.FolderResponse;
 import com.luisdev.dto.RenameRequest;
 import com.luisdev.service.FileService;
 import com.luisdev.service.UserService;
@@ -30,7 +30,7 @@ public class FolderController {
   }
 
   @PostMapping
-  public ResponseEntity<Folder> createFolder(@RequestBody FolderRequest request) {
+  public ResponseEntity<FolderResponse> createFolder(@RequestBody FolderRequest request) {
     return ResponseEntity.ok(fileService.createFolder(request.getName(), request.getParentId(), getCurrentUserId()));
   }
 

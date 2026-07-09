@@ -4,6 +4,7 @@ import com.luisdev.domain.entity.User;
 import com.luisdev.dto.AuthResponse;
 import com.luisdev.dto.LoginRequest;
 import com.luisdev.dto.RegisterRequest;
+import com.luisdev.dto.UpdatePasswordRequest;
 import com.luisdev.security.JwtProvider;
 import com.luisdev.service.SessionService;
 import com.luisdev.service.UserService;
@@ -80,7 +81,7 @@ public class AuthController {
   }
 
   @PutMapping("/update-password")
-  public ResponseEntity<AuthResponse> updatePassword(@RequestBody com.luisdev.dto.UpdatePasswordRequest request) {
+  public ResponseEntity<AuthResponse> updatePassword(@RequestBody UpdatePasswordRequest request) {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
       return ResponseEntity.status(401).build();
