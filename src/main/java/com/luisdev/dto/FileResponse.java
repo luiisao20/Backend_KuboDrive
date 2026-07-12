@@ -21,4 +21,5 @@ public class FileResponse {
     private UUID folderId;
     private LocalDateTime createdAt;
     private FileStatus status;
+    private Boolean starred;
 }

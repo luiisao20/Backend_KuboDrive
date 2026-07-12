@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import org.hibernate.annotations.CreationTimestamp;
+
 @Entity
 @Table(name = "folders")
 @Data
@@ -31,13 +33,11 @@ public class Folder {
     @JoinColumn(name = "parent_id")
     private Folder parent;
 
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean starred = false;
 
-    @PrePersist
-    public void prePersist() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
+    @Column(name = "created_at", updatable = false, columnDefinition = "timestamptz")
+    @CreationTimestamp
+    private LocalDateTime createdAt;
 }

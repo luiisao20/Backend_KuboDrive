@@ -17,4 +17,5 @@ public class FolderResponse {
     private String name;
     private UUID parentId;
     private LocalDateTime createdAt;
+    private Boolean starred;
 }

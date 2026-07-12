@@ -10,4 +10,5 @@ public class FileInitUploadRequest {
   private String originalName;
   private Long sizeBytes;
   private String mimeType;
+  private Boolean starred;
 }

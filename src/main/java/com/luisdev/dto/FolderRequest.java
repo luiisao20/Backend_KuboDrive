@@ -7,4 +7,5 @@ import java.util.UUID;
 public class FolderRequest {
     private String name;
     private UUID parentId;
+    private Boolean starred;
 }

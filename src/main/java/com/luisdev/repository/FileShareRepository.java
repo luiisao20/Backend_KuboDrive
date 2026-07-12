@@ -8,4 +8,5 @@ import java.util.UUID;
 
 public interface FileShareRepository extends JpaRepository<FileShare, UUID> {
     Optional<FileShare> findByFileIdAndSharedWithId(UUID fileId, UUID sharedWithId);
+    long countBySharedWithId(UUID sharedWithId);
 }

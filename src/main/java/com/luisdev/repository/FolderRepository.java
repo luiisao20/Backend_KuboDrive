@@ -9,4 +9,5 @@ import java.util.UUID;
 public interface FolderRepository extends JpaRepository<Folder, UUID> {
     List<Folder> findByOwnerIdAndParentId(UUID ownerId, UUID parentId);
     List<Folder> findByOwnerIdAndParentIsNull(UUID ownerId);
+    long countByOwnerIdAndStarredTrue(UUID ownerId);
 }

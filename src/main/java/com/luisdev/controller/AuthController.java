@@ -10,6 +10,9 @@ import com.luisdev.service.SessionService;
 import com.luisdev.service.UserService;
 import com.luisdev.utils.CookiesUtils;
 import jakarta.servlet.http.HttpServletRequest;
+
+import java.util.Map;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -32,14 +35,14 @@ public class AuthController {
   }
 
   @PostMapping("/register")
-  public ResponseEntity<User> register(@RequestBody RegisterRequest request) {
+  public ResponseEntity<Map<String, String>> register(@RequestBody RegisterRequest request) {
     User user = new User();
     user.setEmail(request.getEmail());
     user.setFirstName(request.getFirstName());
     user.setLastName(request.getLastName());
     user.setPassword(request.getPassword());
 
-    return ResponseEntity.ok(userService.registerUser(user));
+    return ResponseEntity.ok().body(Map.of("message", "Ok"));
   }
 
   @PostMapping("/login")
@@ -54,30 +57,35 @@ public class AuthController {
 
     ResponseCookie cookie = CookiesUtils.createJwtCookie(token, 86400); // 1 día
 
+    User user = userService.findByEmail(request.getEmail());
+
     return ResponseEntity.ok()
         .header(HttpHeaders.SET_COOKIE, cookie.toString())
-        .body(new AuthResponse("Login exitoso", request.getEmail()));
+        .body(new AuthResponse("Login exitoso", request.getEmail(), user.getFirstName(), user.getLastName()));
   }
 
   @GetMapping("/validate")
   public ResponseEntity<AuthResponse> validate() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
-      return ResponseEntity.status(401).body(new AuthResponse("No autorizado", null));
+      return ResponseEntity.status(401).body(new AuthResponse("No autorizado", null, null, null));
     }
-    return ResponseEntity.ok(new AuthResponse("Sesión válida", auth.getName()));
+
+    User user = userService.findByEmail(auth.getName());
+
+    return ResponseEntity.ok(new AuthResponse("Sesión válida", auth.getName(), user.getFirstName(), user.getLastName()));
   }
 
   @PostMapping("/logout")
   public ResponseEntity<AuthResponse> logout(HttpServletRequest request) {
     String token = CookiesUtils.extractTokenFromCookies(request.getCookies());
     sessionService.deleteSession(token);
-    
+
     ResponseCookie cookie = CookiesUtils.deleteJwtCookie();
-    
+
     return ResponseEntity.ok()
         .header(HttpHeaders.SET_COOKIE, cookie.toString())
-        .body(new AuthResponse("Logout exitoso", null));
+        .body(new AuthResponse("Logout exitoso", null, null, null));
   }
 
   @PutMapping("/update-password")
@@ -86,8 +94,8 @@ public class AuthController {
     if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
       return ResponseEntity.status(401).build();
     }
-    
+
     userService.updatePassword(auth.getName(), request.getOldPassword(), request.getNewPassword());
-    return ResponseEntity.ok(new AuthResponse("Contraseña actualizada exitosamente", auth.getName()));
+    return ResponseEntity.ok(new AuthResponse("Contraseña actualizada exitosamente", auth.getName(), null, null));
   }
 }

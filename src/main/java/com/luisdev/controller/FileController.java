@@ -71,4 +71,15 @@ public class FileController {
     fileService.deleteFile(fileId, getCurrentUserId());
     return ResponseEntity.ok().build();
   }
+
+  @GetMapping("/stats")
+  public ResponseEntity<Map<String, Long>> getStats() {
+      return ResponseEntity.ok(fileService.getStats(getCurrentUserId()));
+  }
+
+  @PutMapping("/{fileId}/starred")
+  public ResponseEntity<Void> updateStarred(@PathVariable UUID fileId, @RequestBody com.luisdev.dto.StarredRequest request) {
+    fileService.updateFileStarred(fileId, request.getStarred(), getCurrentUserId());
+    return ResponseEntity.ok().build();
+  }
 }

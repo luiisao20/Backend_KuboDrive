@@ -70,6 +70,7 @@ public class FileService {
         .folder(folder)
         .owner(owner)
         .status(FileStatus.PENDING)
+        .starred(request.getStarred() != null ? request.getStarred() : false)
         .build();
 
     fileMetadata = fileMetadataRepository.save(fileMetadata);
@@ -145,7 +146,7 @@ public class FileService {
   }
 
   @Transactional
-  public FolderResponse createFolder(String name, UUID parentId, UUID userId) {
+  public FolderResponse createFolder(String name, UUID parentId, Boolean starred, UUID userId) {
     User owner = userRepository.findById(userId).orElseThrow();
     Folder parent = null;
     if (parentId != null) {
@@ -157,6 +158,7 @@ public class FileService {
     folder.setName(name);
     folder.setParent(parent);
     folder.setOwner(owner);
+    folder.setStarred(starred != null ? starred : false);
     
     Folder savedFolder = folderRepository.save(folder);
     return FolderResponse.builder()
@@ -164,6 +166,7 @@ public class FileService {
         .name(savedFolder.getName())
         .parentId(savedFolder.getParent() != null ? savedFolder.getParent().getId() : null)
         .createdAt(savedFolder.getCreatedAt())
+        .starred(savedFolder.getStarred())
         .build();
   }
 
@@ -182,6 +185,22 @@ public class FileService {
     if (!folder.getOwner().getId().equals(userId))
       throw new SecurityException("Acceso denegado");
     folderRepository.delete(folder);
+  }
+
+  @Transactional
+  public void updateFileStarred(UUID fileId, Boolean starred, UUID userId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow();
+    if (!file.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+    file.setStarred(starred != null ? starred : false);
+    fileMetadataRepository.save(file);
+  }
+
+  @Transactional
+  public void updateFolderStarred(UUID folderId, Boolean starred, UUID userId) {
+    Folder folder = folderRepository.findById(folderId).orElseThrow();
+    if (!folder.getOwner().getId().equals(userId)) throw new SecurityException("Acceso denegado");
+    folder.setStarred(starred != null ? starred : false);
+    folderRepository.save(folder);
   }
 
   @Transactional
@@ -223,6 +242,7 @@ public class FileService {
         .name(f.getName())
         .parentId(f.getParent() != null ? f.getParent().getId() : null)
         .createdAt(f.getCreatedAt())
+        .starred(f.getStarred())
         .build()).collect(Collectors.toList());
 
     List<FileResponse> fileResponses = files.stream().map(f -> FileResponse.builder()
@@ -233,11 +253,27 @@ public class FileService {
         .folderId(f.getFolder() != null ? f.getFolder().getId() : null)
         .createdAt(f.getCreatedAt())
         .status(f.getStatus())
+        .starred(f.getStarred())
         .build()).collect(Collectors.toList());
 
     Map<String, Object> contents = new HashMap<>();
     contents.put("folders", folderResponses);
     contents.put("files", fileResponses);
     return contents;
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Long> getStats(UUID userId) {
+      long totalFiles = fileMetadataRepository.countByOwnerId(userId);
+      long sharedFiles = fileShareRepository.countBySharedWithId(userId);
+      long starredFiles = fileMetadataRepository.countByOwnerIdAndStarredTrue(userId);
+      long starredFolders = folderRepository.countByOwnerIdAndStarredTrue(userId);
+
+      Map<String, Long> stats = new HashMap<>();
+      stats.put("totalFiles", totalFiles);
+      stats.put("sharedFiles", sharedFiles);
+      stats.put("starredItems", starredFiles + starredFolders);
+      
+      return stats;
   }
 }

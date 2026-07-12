@@ -39,6 +39,10 @@ public class UserService implements UserDetailsService {
     return userRepository.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found")).getId();
   }
 
+  public User findByEmail(String email) {
+    return userRepository.findByEmail(email).orElseThrow(() -> new RuntimeException("User not found"));
+  }
+
   public void updatePassword(String email, String oldPassword, String newPassword) {
     User user = userRepository.findByEmail(email)
             .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));

@@ -31,7 +31,7 @@ public class FolderController {
 
   @PostMapping
   public ResponseEntity<FolderResponse> createFolder(@RequestBody FolderRequest request) {
-    return ResponseEntity.ok(fileService.createFolder(request.getName(), request.getParentId(), getCurrentUserId()));
+    return ResponseEntity.ok(fileService.createFolder(request.getName(), request.getParentId(), request.getStarred(), getCurrentUserId()));
   }
 
   @PutMapping("/{folderId}/rename")
@@ -43,6 +43,12 @@ public class FolderController {
   @DeleteMapping("/{folderId}")
   public ResponseEntity<Void> deleteFolder(@PathVariable UUID folderId) {
     fileService.deleteFolder(folderId, getCurrentUserId());
+    return ResponseEntity.ok().build();
+  }
+
+  @PutMapping("/{folderId}/starred")
+  public ResponseEntity<Void> updateStarred(@PathVariable UUID folderId, @RequestBody com.luisdev.dto.StarredRequest request) {
+    fileService.updateFolderStarred(folderId, request.getStarred(), getCurrentUserId());
     return ResponseEntity.ok().build();
   }
 }

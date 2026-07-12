@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface FileMetadataRepository extends JpaRepository<FileMetadata, UUID> {
     List<FileMetadata> findByOwnerIdAndFolderId(UUID ownerId, UUID folderId);
     List<FileMetadata> findByOwnerIdAndFolderIsNull(UUID ownerId);
+    long countByOwnerId(UUID ownerId);
+    long countByOwnerIdAndStarredTrue(UUID ownerId);
 }
