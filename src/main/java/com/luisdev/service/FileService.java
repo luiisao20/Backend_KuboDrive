@@ -184,6 +184,25 @@ public class FileService {
     Folder folder = folderRepository.findById(folderId).orElseThrow();
     if (!folder.getOwner().getId().equals(userId))
       throw new SecurityException("Acceso denegado");
+    
+    deleteFolderRecursively(folder, userId);
+  }
+
+  private void deleteFolderRecursively(Folder folder, UUID userId) {
+    // 1. Encontrar y borrar físicamente todos los archivos en esta carpeta
+    List<FileMetadata> files = fileMetadataRepository.findByOwnerIdAndFolderId(userId, folder.getId());
+    for (FileMetadata file : files) {
+      minioService.deleteFileFromMinio(file.getMinioObjectId());
+      fileMetadataRepository.delete(file);
+    }
+
+    // 2. Encontrar y borrar recursivamente todas las subcarpetas
+    List<Folder> subfolders = folderRepository.findByOwnerIdAndParentId(userId, folder.getId());
+    for (Folder subfolder : subfolders) {
+      deleteFolderRecursively(subfolder, userId);
+    }
+
+    // 3. Finalmente, borrar la carpeta actual
     folderRepository.delete(folder);
   }
 
@@ -226,12 +245,14 @@ public class FileService {
   public Map<String, Object> listContents(UUID folderId, UUID userId) {
     List<Folder> folders;
     List<FileMetadata> files;
+    Folder currentFolder = null;
+
     if (folderId == null) {
       folders = folderRepository.findByOwnerIdAndParentIsNull(userId);
       files = fileMetadataRepository.findByOwnerIdAndFolderIsNull(userId);
     } else {
-      Folder folder = folderRepository.findById(folderId).orElseThrow();
-      if (!folder.getOwner().getId().equals(userId))
+      currentFolder = folderRepository.findById(folderId).orElseThrow();
+      if (!currentFolder.getOwner().getId().equals(userId))
         throw new SecurityException("Acceso denegado");
       folders = folderRepository.findByOwnerIdAndParentId(userId, folderId);
       files = fileMetadataRepository.findByOwnerIdAndFolderId(userId, folderId);
@@ -259,6 +280,19 @@ public class FileService {
     Map<String, Object> contents = new HashMap<>();
     contents.put("folders", folderResponses);
     contents.put("files", fileResponses);
+    
+    if (currentFolder != null) {
+      contents.put("currentFolder", FolderResponse.builder()
+          .id(currentFolder.getId())
+          .name(currentFolder.getName())
+          .parentId(currentFolder.getParent() != null ? currentFolder.getParent().getId() : null)
+          .createdAt(currentFolder.getCreatedAt())
+          .starred(currentFolder.getStarred())
+          .build());
+    } else {
+      contents.put("currentFolder", null);
+    }
+
     return contents;
   }
 
