@@ -310,4 +310,34 @@ public class FileService {
       
       return stats;
   }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> search(String query, UUID userId) {
+      List<Folder> folders = folderRepository.findByOwnerIdAndNameContainingIgnoreCase(userId, query);
+      List<FileMetadata> files = fileMetadataRepository.findByOwnerIdAndOriginalNameContainingIgnoreCase(userId, query);
+
+      List<FolderResponse> folderResponses = folders.stream().map(f -> FolderResponse.builder()
+          .id(f.getId())
+          .name(f.getName())
+          .parentId(f.getParent() != null ? f.getParent().getId() : null)
+          .createdAt(f.getCreatedAt())
+          .starred(f.getStarred())
+          .build()).collect(Collectors.toList());
+
+      List<FileResponse> fileResponses = files.stream().map(f -> FileResponse.builder()
+          .id(f.getId())
+          .originalName(f.getOriginalName())
+          .sizeBytes(f.getSizeBytes())
+          .mimeType(f.getMimeType())
+          .folderId(f.getFolder() != null ? f.getFolder().getId() : null)
+          .createdAt(f.getCreatedAt())
+          .status(f.getStatus())
+          .starred(f.getStarred())
+          .build()).collect(Collectors.toList());
+
+      Map<String, Object> contents = new HashMap<>();
+      contents.put("folders", folderResponses);
+      contents.put("files", fileResponses);
+      return contents;
+  }
 }

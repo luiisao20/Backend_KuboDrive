@@ -82,4 +82,9 @@ public class FileController {
     fileService.updateFileStarred(fileId, request.getStarred(), getCurrentUserId());
     return ResponseEntity.ok().build();
   }
+
+  @GetMapping("/search")
+  public ResponseEntity<Map<String, Object>> search(@RequestParam String query) {
+      return ResponseEntity.ok(fileService.search(query, getCurrentUserId()));
+  }
 }

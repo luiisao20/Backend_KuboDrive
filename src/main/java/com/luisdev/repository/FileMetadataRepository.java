@@ -11,4 +11,5 @@ public interface FileMetadataRepository extends JpaRepository<FileMetadata, UUID
     List<FileMetadata> findByOwnerIdAndFolderIsNull(UUID ownerId);
     long countByOwnerId(UUID ownerId);
     long countByOwnerIdAndStarredTrue(UUID ownerId);
+    List<FileMetadata> findByOwnerIdAndOriginalNameContainingIgnoreCase(UUID ownerId, String query);
 }
