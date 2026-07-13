@@ -12,4 +12,7 @@ public interface FileMetadataRepository extends JpaRepository<FileMetadata, UUID
     long countByOwnerId(UUID ownerId);
     long countByOwnerIdAndStarredTrue(UUID ownerId);
     List<FileMetadata> findByOwnerIdAndOriginalNameContainingIgnoreCase(UUID ownerId, String query);
+
+    @org.springframework.data.jpa.repository.Query("SELECT COALESCE(SUM(f.sizeBytes), 0) FROM FileMetadata f WHERE f.owner.id = :ownerId")
+    Long sumSizeBytesByOwnerId(@org.springframework.data.repository.query.Param("ownerId") java.util.UUID ownerId);
 }

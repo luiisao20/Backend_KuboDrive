@@ -1,41 +1,40 @@
 package com.luisdev.domain.entity;
 
-import com.luisdev.domain.enums.FilePermission;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-import org.hibernate.annotations.CreationTimestamp;
-
 @Entity
-@Table(name = "file_shares")
+@Table(name = "history")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class FileShare {
+public class History {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
-    @JoinColumn(name = "file_id", nullable = false)
-    private FileMetadata file;
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    @ManyToOne(optional = false, fetch = FetchType.LAZY)
-    @JoinColumn(name = "shared_with_id", nullable = false)
-    private User sharedWith;
-
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private FilePermission permissions;
+    private String actionType;
+
+    @Column(nullable = false)
+    private String itemType;
+
+    @Column(nullable = false)
+    private String itemName;
 
     @Column(updatable = false, columnDefinition = "timestamptz")
     @CreationTimestamp
-    private LocalDateTime createdAt;
+    private LocalDateTime timestamp;
 }

@@ -13,19 +13,19 @@ import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
-@Table(name = "file_shares")
+@Table(name = "folder_shares")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class FileShare {
+public class FolderShare {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
-    @JoinColumn(name = "file_id", nullable = false)
-    private FileMetadata file;
+    @JoinColumn(name = "folder_id", nullable = false)
+    private Folder folder;
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "shared_with_id", nullable = false)

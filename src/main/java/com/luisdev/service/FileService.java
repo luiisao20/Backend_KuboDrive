@@ -3,6 +3,7 @@ package com.luisdev.service;
 import com.luisdev.domain.entity.FileMetadata;
 import com.luisdev.domain.entity.FileShare;
 import com.luisdev.domain.entity.Folder;
+import com.luisdev.domain.entity.FolderShare;
 import com.luisdev.domain.entity.User;
 import com.luisdev.domain.enums.FilePermission;
 import com.luisdev.domain.enums.FileStatus;
@@ -10,9 +11,11 @@ import com.luisdev.dto.FileInitUploadRequest;
 import com.luisdev.dto.FileInitUploadResponse;
 import com.luisdev.dto.FileResponse;
 import com.luisdev.dto.FolderResponse;
+import com.luisdev.dto.SharedFileResponse;
 import com.luisdev.repository.FileMetadataRepository;
 import com.luisdev.repository.FileShareRepository;
 import com.luisdev.repository.FolderRepository;
+import com.luisdev.repository.FolderShareRepository;
 import com.luisdev.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
@@ -31,18 +34,24 @@ public class FileService {
   private final FolderRepository folderRepository;
   private final UserRepository userRepository;
   private final FileShareRepository fileShareRepository;
+  private final FolderShareRepository folderShareRepository;
   private final MinioService minioService;
+  private final HistoryService historyService;
 
   public FileService(FileMetadataRepository fileMetadataRepository,
       FolderRepository folderRepository,
       UserRepository userRepository,
       FileShareRepository fileShareRepository,
-      MinioService minioService) {
+      FolderShareRepository folderShareRepository,
+      MinioService minioService,
+      HistoryService historyService) {
     this.fileMetadataRepository = fileMetadataRepository;
     this.folderRepository = folderRepository;
     this.userRepository = userRepository;
     this.fileShareRepository = fileShareRepository;
+    this.folderShareRepository = folderShareRepository;
     this.minioService = minioService;
+    this.historyService = historyService;
   }
 
   @Transactional
@@ -75,6 +84,7 @@ public class FileService {
 
     fileMetadata = fileMetadataRepository.save(fileMetadata);
 
+    historyService.recordHistory(owner, "UPLOAD", "FILE", request.getOriginalName());
     String uploadUrl = minioService.generatePresignedUploadUrl(minioObjectId);
 
     return FileInitUploadResponse.builder()
@@ -142,7 +152,52 @@ public class FileService {
                   .permissions(FilePermission.READ)
                   .build();
               fileShareRepository.save(share);
+              historyService.recordHistory(file.getOwner(), "SHARE", "FILE", file.getOriginalName());
             });
+  }
+
+  @Transactional
+  public void shareFolder(UUID folderId, String targetUserEmail, UUID ownerUserId) {
+    Folder folder = folderRepository.findById(folderId).orElseThrow(() -> new EntityNotFoundException("Folder not found"));
+    if (!folder.getOwner().getId().equals(ownerUserId)) {
+      throw new SecurityException("User does not own this folder");
+    }
+    User targetUser = userRepository.findByEmail(targetUserEmail).orElseThrow(() -> new EntityNotFoundException("Target user not found"));
+    if (targetUser.getId().equals(ownerUserId)) {
+      throw new IllegalArgumentException("Cannot share folder with yourself");
+    }
+    shareFolderRecursively(folder, targetUser);
+    historyService.recordHistory(folder.getOwner(), "SHARE", "FOLDER", folder.getName());
+  }
+
+  private void shareFolderRecursively(Folder folder, User targetUser) {
+    folderShareRepository.findByFolderIdAndSharedWithId(folder.getId(), targetUser.getId())
+        .ifPresentOrElse(share -> {}, () -> {
+            FolderShare share = FolderShare.builder()
+                .folder(folder)
+                .sharedWith(targetUser)
+                .permissions(FilePermission.READ)
+                .build();
+            folderShareRepository.save(share);
+        });
+
+    List<FileMetadata> files = fileMetadataRepository.findByOwnerIdAndFolderId(folder.getOwner().getId(), folder.getId());
+    for (FileMetadata file : files) {
+        fileShareRepository.findByFileIdAndSharedWithId(file.getId(), targetUser.getId())
+            .ifPresentOrElse(share -> {}, () -> {
+                FileShare share = FileShare.builder()
+                    .file(file)
+                    .sharedWith(targetUser)
+                    .permissions(FilePermission.READ)
+                    .build();
+                fileShareRepository.save(share);
+            });
+    }
+
+    List<Folder> subfolders = folderRepository.findByOwnerIdAndParentId(folder.getOwner().getId(), folder.getId());
+    for (Folder subfolder : subfolders) {
+        shareFolderRecursively(subfolder, targetUser);
+    }
   }
 
   @Transactional
@@ -161,6 +216,7 @@ public class FileService {
     folder.setStarred(starred != null ? starred : false);
     
     Folder savedFolder = folderRepository.save(folder);
+    historyService.recordHistory(owner, "CREATE", "FOLDER", name);
     return FolderResponse.builder()
         .id(savedFolder.getId())
         .name(savedFolder.getName())
@@ -177,6 +233,7 @@ public class FileService {
       throw new SecurityException("Acceso denegado");
     folder.setName(newName);
     folderRepository.save(folder);
+    historyService.recordHistory(folder.getOwner(), "RENAME", "FOLDER", newName);
   }
 
   @Transactional
@@ -185,7 +242,10 @@ public class FileService {
     if (!folder.getOwner().getId().equals(userId))
       throw new SecurityException("Acceso denegado");
     
+    String folderName = folder.getName();
+    User owner = folder.getOwner();
     deleteFolderRecursively(folder, userId);
+    historyService.recordHistory(owner, "DELETE", "FOLDER", folderName);
   }
 
   private void deleteFolderRecursively(Folder folder, UUID userId) {
@@ -229,6 +289,7 @@ public class FileService {
       throw new SecurityException("Acceso denegado");
     file.setOriginalName(newName);
     fileMetadataRepository.save(file);
+    historyService.recordHistory(file.getOwner(), "RENAME", "FILE", newName);
   }
 
   @Transactional
@@ -239,6 +300,7 @@ public class FileService {
     
     minioService.deleteFileFromMinio(file.getMinioObjectId());
     fileMetadataRepository.delete(file);
+    historyService.recordHistory(file.getOwner(), "DELETE", "FILE", file.getOriginalName());
   }
 
   @Transactional(readOnly = true)
@@ -252,10 +314,34 @@ public class FileService {
       files = fileMetadataRepository.findByOwnerIdAndFolderIsNull(userId);
     } else {
       currentFolder = folderRepository.findById(folderId).orElseThrow();
-      if (!currentFolder.getOwner().getId().equals(userId))
-        throw new SecurityException("Acceso denegado");
-      folders = folderRepository.findByOwnerIdAndParentId(userId, folderId);
-      files = fileMetadataRepository.findByOwnerIdAndFolderId(userId, folderId);
+      boolean isOwner = currentFolder.getOwner().getId().equals(userId);
+      boolean isSharedWithMe = false;
+      
+      if (!isOwner) {
+          isSharedWithMe = folderShareRepository.findByFolderIdAndSharedWithId(folderId, userId).isPresent();
+          if (!isSharedWithMe) {
+              throw new SecurityException("Acceso denegado");
+          }
+      }
+
+      UUID originalOwnerId = currentFolder.getOwner().getId();
+      List<Folder> allFolders = folderRepository.findByOwnerIdAndParentId(originalOwnerId, folderId);
+      List<FileMetadata> allFiles = fileMetadataRepository.findByOwnerIdAndFolderId(originalOwnerId, folderId);
+
+      if (isOwner) {
+          folders = allFolders;
+          files = allFiles;
+      } else {
+          List<UUID> sharedFolderIds = folderShareRepository.findSharedFolderIdsByUserId(userId);
+          List<UUID> sharedFileIds = fileShareRepository.findSharedFileIdsByUserId(userId);
+          
+          folders = allFolders.stream()
+                .filter(f -> sharedFolderIds.contains(f.getId()))
+                .collect(Collectors.toList());
+          files = allFiles.stream()
+                .filter(f -> sharedFileIds.contains(f.getId()))
+                .collect(Collectors.toList());
+      }
     }
     
     List<FolderResponse> folderResponses = folders.stream().map(f -> FolderResponse.builder()
@@ -339,5 +425,112 @@ public class FileService {
       contents.put("folders", folderResponses);
       contents.put("files", fileResponses);
       return contents;
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> listSharedWithMe(UUID userId) {
+      List<FileShare> fileShares = fileShareRepository.findBySharedWithId(userId);
+      List<SharedFileResponse> fileResponses = fileShares.stream().map(share -> SharedFileResponse.builder()
+          .id(share.getFile().getId())
+          .originalName(share.getFile().getOriginalName())
+          .sizeBytes(share.getFile().getSizeBytes())
+          .mimeType(share.getFile().getMimeType())
+          .createdAt(share.getFile().getCreatedAt())
+          .sharedAt(share.getCreatedAt())
+          .sharedByEmail(share.getFile().getOwner().getEmail())
+          .sharedByFirstName(share.getFile().getOwner().getFirstName())
+          .sharedByLastName(share.getFile().getOwner().getLastName())
+          .build()
+      ).collect(Collectors.toList());
+
+      List<FolderShare> folderShares = folderShareRepository.findBySharedWithId(userId);
+      List<com.luisdev.dto.SharedFolderResponse> folderResponses = folderShares.stream().map(share -> com.luisdev.dto.SharedFolderResponse.builder()
+          .id(share.getFolder().getId())
+          .name(share.getFolder().getName())
+          .createdAt(share.getFolder().getCreatedAt())
+          .sharedAt(share.getCreatedAt())
+          .sharedByEmail(share.getFolder().getOwner().getEmail())
+          .sharedByFirstName(share.getFolder().getOwner().getFirstName())
+          .sharedByLastName(share.getFolder().getOwner().getLastName())
+          .build()
+      ).collect(Collectors.toList());
+
+      Map<String, Object> result = new HashMap<>();
+      result.put("folders", folderResponses);
+      result.put("files", fileResponses);
+      return result;
+  }
+
+  @Transactional(readOnly = true)
+  public Map<String, Object> listSharedByMe(UUID userId) {
+      List<FileShare> fileShares = fileShareRepository.findByFileOwnerId(userId);
+      List<com.luisdev.dto.SharedByMeFileResponse> fileResponses = fileShares.stream().map(share -> com.luisdev.dto.SharedByMeFileResponse.builder()
+          .id(share.getFile().getId())
+          .originalName(share.getFile().getOriginalName())
+          .sizeBytes(share.getFile().getSizeBytes())
+          .mimeType(share.getFile().getMimeType())
+          .createdAt(share.getFile().getCreatedAt())
+          .sharedAt(share.getCreatedAt())
+          .sharedWithEmail(share.getSharedWith().getEmail())
+          .sharedWithFirstName(share.getSharedWith().getFirstName())
+          .sharedWithLastName(share.getSharedWith().getLastName())
+          .build()
+      ).collect(Collectors.toList());
+
+      List<FolderShare> folderShares = folderShareRepository.findByFolderOwnerId(userId);
+      List<com.luisdev.dto.SharedByMeFolderResponse> folderResponses = folderShares.stream().map(share -> com.luisdev.dto.SharedByMeFolderResponse.builder()
+          .id(share.getFolder().getId())
+          .name(share.getFolder().getName())
+          .createdAt(share.getFolder().getCreatedAt())
+          .sharedAt(share.getCreatedAt())
+          .sharedWithEmail(share.getSharedWith().getEmail())
+          .sharedWithFirstName(share.getSharedWith().getFirstName())
+          .sharedWithLastName(share.getSharedWith().getLastName())
+          .build()
+      ).collect(Collectors.toList());
+
+      Map<String, Object> result = new HashMap<>();
+      result.put("folders", folderResponses);
+      result.put("files", fileResponses);
+      return result;
+  }
+
+  @Transactional
+  public void revokeFileShare(UUID fileId, String targetUserEmail, UUID ownerUserId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId).orElseThrow(() -> new EntityNotFoundException("File not found"));
+    if (!file.getOwner().getId().equals(ownerUserId)) {
+      throw new SecurityException("User does not own this file");
+    }
+    User targetUser = userRepository.findByEmail(targetUserEmail).orElseThrow(() -> new EntityNotFoundException("Target user not found"));
+    
+    fileShareRepository.findByFileIdAndSharedWithId(fileId, targetUser.getId())
+        .ifPresent(fileShareRepository::delete);
+  }
+
+  @Transactional
+  public void revokeFolderShare(UUID folderId, String targetUserEmail, UUID ownerUserId) {
+    Folder folder = folderRepository.findById(folderId).orElseThrow(() -> new EntityNotFoundException("Folder not found"));
+    if (!folder.getOwner().getId().equals(ownerUserId)) {
+      throw new SecurityException("User does not own this folder");
+    }
+    User targetUser = userRepository.findByEmail(targetUserEmail).orElseThrow(() -> new EntityNotFoundException("Target user not found"));
+    
+    revokeFolderShareRecursively(folder, targetUser);
+  }
+
+  private void revokeFolderShareRecursively(Folder folder, User targetUser) {
+    folderShareRepository.findByFolderIdAndSharedWithId(folder.getId(), targetUser.getId())
+        .ifPresent(folderShareRepository::delete);
+
+    List<FileMetadata> files = fileMetadataRepository.findByOwnerIdAndFolderId(folder.getOwner().getId(), folder.getId());
+    for (FileMetadata file : files) {
+        fileShareRepository.findByFileIdAndSharedWithId(file.getId(), targetUser.getId())
+            .ifPresent(fileShareRepository::delete);
+    }
+
+    List<Folder> subfolders = folderRepository.findByOwnerIdAndParentId(folder.getOwner().getId(), folder.getId());
+    for (Folder subfolder : subfolders) {
+        revokeFolderShareRecursively(subfolder, targetUser);
+    }
   }
 }

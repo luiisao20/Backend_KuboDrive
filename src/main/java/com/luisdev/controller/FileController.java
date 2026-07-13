@@ -4,6 +4,7 @@ import com.luisdev.dto.FileInitUploadRequest;
 import com.luisdev.dto.FileInitUploadResponse;
 import com.luisdev.dto.FileShareRequest;
 import com.luisdev.dto.RenameRequest;
+import com.luisdev.dto.StarredRequest;
 import com.luisdev.service.FileService;
 import com.luisdev.service.UserService;
 import org.springframework.http.ResponseEntity;
@@ -55,15 +56,9 @@ public class FileController {
   }
 
   @PostMapping("/{fileId}/share")
-  public ResponseEntity<Void> shareFile(@PathVariable UUID fileId, @RequestBody FileShareRequest request) {
+  public ResponseEntity<Map<String, String>> shareFile(@PathVariable UUID fileId, @RequestBody FileShareRequest request) {
     fileService.shareFile(fileId, request.getTargetUserEmail(), getCurrentUserId());
-    return ResponseEntity.ok().build();
-  }
-
-  @PutMapping("/{fileId}/rename")
-  public ResponseEntity<Void> renameFile(@PathVariable UUID fileId, @RequestBody RenameRequest request) {
-    fileService.renameFile(fileId, request.getNewName(), getCurrentUserId());
-    return ResponseEntity.ok().build();
+    return ResponseEntity.ok(Map.of("message", "Archivo compartido con éxito a " + request.getTargetUserEmail()));
   }
 
   @DeleteMapping("/{fileId}")
@@ -78,7 +73,7 @@ public class FileController {
   }
 
   @PutMapping("/{fileId}/starred")
-  public ResponseEntity<Void> updateStarred(@PathVariable UUID fileId, @RequestBody com.luisdev.dto.StarredRequest request) {
+  public ResponseEntity<Void> updateStarred(@PathVariable UUID fileId, @RequestBody StarredRequest request) {
     fileService.updateFileStarred(fileId, request.getStarred(), getCurrentUserId());
     return ResponseEntity.ok().build();
   }
@@ -86,5 +81,27 @@ public class FileController {
   @GetMapping("/search")
   public ResponseEntity<Map<String, Object>> search(@RequestParam String query) {
       return ResponseEntity.ok(fileService.search(query, getCurrentUserId()));
+  }
+
+  @PutMapping("/{fileId}/rename")
+  public ResponseEntity<Map<String, String>> renameFile(@PathVariable UUID fileId, @RequestBody RenameRequest request) {
+    fileService.renameFile(fileId, request.getNewName(), getCurrentUserId());
+    return ResponseEntity.ok(Collections.singletonMap("message", "Archivo renombrado con éxito a " + request.getNewName()));
+  }
+
+  @GetMapping("/shared")
+  public ResponseEntity<Map<String, Object>> listSharedWithMe() {
+      return ResponseEntity.ok(fileService.listSharedWithMe(getCurrentUserId()));
+  }
+
+  @GetMapping("/shared-by-me")
+  public ResponseEntity<Map<String, Object>> listSharedByMe() {
+      return ResponseEntity.ok(fileService.listSharedByMe(getCurrentUserId()));
+  }
+
+  @DeleteMapping("/{fileId}/share")
+  public ResponseEntity<Map<String, String>> revokeFileShare(@PathVariable UUID fileId, @RequestParam String targetUserEmail) {
+    fileService.revokeFileShare(fileId, targetUserEmail, getCurrentUserId());
+    return ResponseEntity.ok(Collections.singletonMap("message", "Acceso revocado con éxito para " + targetUserEmail));
   }
 }
