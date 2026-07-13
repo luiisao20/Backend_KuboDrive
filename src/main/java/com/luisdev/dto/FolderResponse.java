@@ -18,4 +18,5 @@ public class FolderResponse {
     private UUID parentId;
     private LocalDateTime createdAt;
     private Boolean starred;
+    private Long itemsCount;
 }

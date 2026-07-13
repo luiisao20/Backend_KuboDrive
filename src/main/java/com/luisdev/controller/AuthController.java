@@ -61,24 +61,20 @@ public class AuthController {
     ResponseCookie cookie = CookiesUtils.createJwtCookie(token, 86400); // 1 día
 
     User user = userService.findByEmail(request.getEmail());
-    Long usedBytes = fileMetadataRepository.sumSizeBytesByOwnerId(user.getId());
-
     return ResponseEntity.ok()
         .header(HttpHeaders.SET_COOKIE, cookie.toString())
-        .body(new AuthResponse("Login exitoso", request.getEmail(), user.getFirstName(), user.getLastName(), usedBytes));
+        .body(new AuthResponse("Login exitoso", request.getEmail(), user.getFirstName(), user.getLastName()));
   }
 
   @GetMapping("/validate")
   public ResponseEntity<AuthResponse> validate() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
-      return ResponseEntity.status(401).body(new AuthResponse("No autorizado", null, null, null, null));
+      return ResponseEntity.status(401).body(new AuthResponse("No autorizado", null, null, null));
     }
 
     User user = userService.findByEmail(auth.getName());
-    Long usedBytes = fileMetadataRepository.sumSizeBytesByOwnerId(user.getId());
-
-    return ResponseEntity.ok(new AuthResponse("Sesión válida", auth.getName(), user.getFirstName(), user.getLastName(), usedBytes));
+    return ResponseEntity.ok(new AuthResponse("Sesión válida", auth.getName(), user.getFirstName(), user.getLastName()));
   }
 
   @PostMapping("/logout")
@@ -90,7 +86,7 @@ public class AuthController {
 
     return ResponseEntity.ok()
         .header(HttpHeaders.SET_COOKIE, cookie.toString())
-        .body(new AuthResponse("Logout exitoso", null, null, null, null));
+        .body(new AuthResponse("Logout exitoso", null, null, null));
   }
 
   @PutMapping("/update-password")
@@ -101,6 +97,6 @@ public class AuthController {
     }
 
     userService.updatePassword(auth.getName(), request.getOldPassword(), request.getNewPassword());
-    return ResponseEntity.ok(new AuthResponse("Contraseña actualizada exitosamente", auth.getName(), null, null, null));
+    return ResponseEntity.ok(new AuthResponse("Contraseña actualizada exitosamente", auth.getName(), null, null));
   }
 }

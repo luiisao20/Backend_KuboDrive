@@ -34,8 +34,11 @@ public class FileController {
   }
 
   @GetMapping
-  public ResponseEntity<Map<String, Object>> listContents(@RequestParam(required = false) UUID folderId) {
-    return ResponseEntity.ok(fileService.listContents(folderId, getCurrentUserId()));
+  public ResponseEntity<Map<String, Object>> listContents(
+      @RequestParam(required = false) UUID folderId,
+      @RequestParam(required = false) Boolean starred,
+      @RequestParam(required = false) String name) {
+    return ResponseEntity.ok(fileService.listContents(folderId, getCurrentUserId(), starred, name));
   }
 
   @PostMapping("/upload/initiate")
@@ -56,7 +59,8 @@ public class FileController {
   }
 
   @PostMapping("/{fileId}/share")
-  public ResponseEntity<Map<String, String>> shareFile(@PathVariable UUID fileId, @RequestBody FileShareRequest request) {
+  public ResponseEntity<Map<String, String>> shareFile(@PathVariable UUID fileId,
+      @RequestBody FileShareRequest request) {
     fileService.shareFile(fileId, request.getTargetUserEmail(), getCurrentUserId());
     return ResponseEntity.ok(Map.of("message", "Archivo compartido con éxito a " + request.getTargetUserEmail()));
   }
@@ -69,7 +73,7 @@ public class FileController {
 
   @GetMapping("/stats")
   public ResponseEntity<Map<String, Long>> getStats() {
-      return ResponseEntity.ok(fileService.getStats(getCurrentUserId()));
+    return ResponseEntity.ok(fileService.getStats(getCurrentUserId()));
   }
 
   @PutMapping("/{fileId}/starred")
@@ -80,27 +84,29 @@ public class FileController {
 
   @GetMapping("/search")
   public ResponseEntity<Map<String, Object>> search(@RequestParam String query) {
-      return ResponseEntity.ok(fileService.search(query, getCurrentUserId()));
+    return ResponseEntity.ok(fileService.search(query, getCurrentUserId()));
   }
 
   @PutMapping("/{fileId}/rename")
   public ResponseEntity<Map<String, String>> renameFile(@PathVariable UUID fileId, @RequestBody RenameRequest request) {
     fileService.renameFile(fileId, request.getNewName(), getCurrentUserId());
-    return ResponseEntity.ok(Collections.singletonMap("message", "Archivo renombrado con éxito a " + request.getNewName()));
+    return ResponseEntity
+        .ok(Collections.singletonMap("message", "Archivo renombrado con éxito a " + request.getNewName()));
   }
 
   @GetMapping("/shared")
   public ResponseEntity<Map<String, Object>> listSharedWithMe() {
-      return ResponseEntity.ok(fileService.listSharedWithMe(getCurrentUserId()));
+    return ResponseEntity.ok(fileService.listSharedWithMe(getCurrentUserId()));
   }
 
   @GetMapping("/shared-by-me")
   public ResponseEntity<Map<String, Object>> listSharedByMe() {
-      return ResponseEntity.ok(fileService.listSharedByMe(getCurrentUserId()));
+    return ResponseEntity.ok(fileService.listSharedByMe(getCurrentUserId()));
   }
 
   @DeleteMapping("/{fileId}/share")
-  public ResponseEntity<Map<String, String>> revokeFileShare(@PathVariable UUID fileId, @RequestParam String targetUserEmail) {
+  public ResponseEntity<Map<String, String>> revokeFileShare(@PathVariable UUID fileId,
+      @RequestParam String targetUserEmail) {
     fileService.revokeFileShare(fileId, targetUserEmail, getCurrentUserId());
     return ResponseEntity.ok(Collections.singletonMap("message", "Acceso revocado con éxito para " + targetUserEmail));
   }

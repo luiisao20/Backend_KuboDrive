@@ -11,4 +11,9 @@ public interface FolderRepository extends JpaRepository<Folder, UUID> {
     List<Folder> findByOwnerIdAndParentIsNull(UUID ownerId);
     long countByOwnerIdAndStarredTrue(UUID ownerId);
     List<Folder> findByOwnerIdAndNameContainingIgnoreCase(UUID ownerId, String query);
+    List<Folder> findByOwnerIdAndStarredTrue(UUID ownerId);
+    List<Folder> findByOwnerIdAndStarredTrueAndNameContainingIgnoreCase(UUID ownerId, String name);
+    long countByParentId(UUID parentId);
+    boolean existsByOwnerIdAndParentIdAndName(UUID ownerId, UUID parentId, String name);
+    boolean existsByOwnerIdAndParentIsNullAndName(UUID ownerId, String name);
 }
