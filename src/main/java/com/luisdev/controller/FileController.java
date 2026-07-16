@@ -1,8 +1,11 @@
 package com.luisdev.controller;
 
+import com.luisdev.dto.CompleteMultipartUploadRequest;
 import com.luisdev.dto.FileInitUploadRequest;
 import com.luisdev.dto.FileInitUploadResponse;
 import com.luisdev.dto.FileShareRequest;
+import com.luisdev.dto.MultipartInitUploadRequest;
+import com.luisdev.dto.MultipartInitUploadResponse;
 import com.luisdev.dto.RenameRequest;
 import com.luisdev.dto.StarredRequest;
 import com.luisdev.service.FileService;
@@ -50,6 +53,26 @@ public class FileController {
   public ResponseEntity<Void> confirmUpload(@PathVariable UUID fileId) {
     fileService.confirmUpload(fileId, getCurrentUserId());
     return ResponseEntity.ok().build();
+  }
+
+  @PostMapping("/upload/multipart/initiate")
+  public ResponseEntity<MultipartInitUploadResponse> initiateMultipartUpload(
+      @RequestBody MultipartInitUploadRequest request) {
+    return ResponseEntity.ok(fileService.initiateMultipartUpload(request, getCurrentUserId()));
+  }
+
+  @PostMapping("/{fileId}/upload/multipart/complete")
+  public ResponseEntity<Map<String, String>> completeMultipartUpload(@PathVariable UUID fileId,
+      @RequestBody CompleteMultipartUploadRequest request) {
+    fileService.completeMultipartUpload(fileId, request, getCurrentUserId());
+    return ResponseEntity.ok(Map.of("message", "Subida multipart completada con éxito"));
+  }
+
+  @PostMapping("/{fileId}/upload/multipart/abort")
+  public ResponseEntity<Map<String, String>> abortMultipartUpload(@PathVariable UUID fileId,
+      @RequestParam String uploadId) {
+    fileService.abortMultipartUpload(fileId, uploadId, getCurrentUserId());
+    return ResponseEntity.ok(Map.of("message", "Subida multipart abortada con éxito"));
   }
 
   @GetMapping("/{fileId}/download-url")

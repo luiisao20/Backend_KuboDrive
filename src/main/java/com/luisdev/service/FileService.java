@@ -7,20 +7,27 @@ import com.luisdev.domain.entity.FolderShare;
 import com.luisdev.domain.entity.User;
 import com.luisdev.domain.enums.FilePermission;
 import com.luisdev.domain.enums.FileStatus;
+import com.luisdev.dto.CompleteMultipartUploadRequest;
 import com.luisdev.dto.FileInitUploadRequest;
 import com.luisdev.dto.FileInitUploadResponse;
 import com.luisdev.dto.FileResponse;
 import com.luisdev.dto.FolderResponse;
+import com.luisdev.dto.MultipartInitUploadRequest;
+import com.luisdev.dto.MultipartInitUploadResponse;
+import com.luisdev.dto.PartUploadUrl;
 import com.luisdev.dto.SharedFileResponse;
 import com.luisdev.repository.FileMetadataRepository;
 import com.luisdev.repository.FileShareRepository;
 import com.luisdev.repository.FolderRepository;
 import com.luisdev.repository.FolderShareRepository;
 import com.luisdev.repository.UserRepository;
+import io.minio.messages.Part;
 import jakarta.persistence.EntityNotFoundException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +44,12 @@ public class FileService {
   private final FolderShareRepository folderShareRepository;
   private final MinioService minioService;
   private final HistoryService historyService;
+
+  @Value("${minio.multipart.part-size-mb:100}")
+  private int multipartPartSizeMb;
+
+  @Value("${minio.multipart.presigned-url-expiry-minutes:30}")
+  private int multipartPresignedUrlExpiryMinutes;
 
   public FileService(FileMetadataRepository fileMetadataRepository,
       FolderRepository folderRepository,
@@ -112,6 +125,144 @@ public class FileService {
 
     file.setStatus(FileStatus.UPLOADED);
     fileMetadataRepository.save(file);
+  }
+
+  @Transactional
+  public MultipartInitUploadResponse initiateMultipartUpload(MultipartInitUploadRequest request, UUID userId) {
+    User owner = userRepository.findById(userId)
+        .orElseThrow(() -> new EntityNotFoundException("User not found"));
+
+    Folder folder = null;
+    if (request.getFolderId() != null) {
+      folder = folderRepository.findById(request.getFolderId())
+          .orElseThrow(() -> new EntityNotFoundException("Folder not found"));
+
+      if (!folder.getOwner().getId().equals(userId)) {
+        throw new SecurityException("User does not have access to this folder");
+      }
+
+      if (fileMetadataRepository.existsByOwnerIdAndFolderIdAndOriginalName(userId, folder.getId(), request.getOriginalName())) {
+        throw new IllegalArgumentException("Archivo existente");
+      }
+    } else {
+      if (fileMetadataRepository.existsByOwnerIdAndFolderIsNullAndOriginalName(userId, request.getOriginalName())) {
+        throw new IllegalArgumentException("Archivo existente");
+      }
+    }
+
+    long partSizeBytes = multipartPartSizeMb * 1024L * 1024L;
+    long sizeBytes = request.getSizeBytes() != null ? request.getSizeBytes() : 0L;
+
+    if (partSizeBytes < 5L * 1024 * 1024) {
+      throw new IllegalArgumentException("El tamaño de parte debe ser al menos 5 MB");
+    }
+
+    int totalParts = sizeBytes > 0 ? (int) Math.ceil(sizeBytes / (double) partSizeBytes) : 1;
+    if (totalParts > 10_000) {
+      throw new IllegalArgumentException("El archivo excede el número máximo de partes permitido (10,000)");
+    }
+
+    String minioObjectId = UUID.randomUUID().toString();
+    String uploadId = minioService.createMultipartUpload(minioObjectId, request.getMimeType());
+
+    FileMetadata fileMetadata = FileMetadata.builder()
+        .originalName(request.getOriginalName())
+        .minioObjectId(minioObjectId)
+        .sizeBytes(sizeBytes)
+        .mimeType(request.getMimeType())
+        .folder(folder)
+        .owner(owner)
+        .status(FileStatus.PENDING)
+        .starred(request.getStarred() != null ? request.getStarred() : false)
+        .uploadId(uploadId)
+        .build();
+
+    fileMetadata = fileMetadataRepository.save(fileMetadata);
+    historyService.recordHistory(owner, "UPLOAD", "FILE", request.getOriginalName());
+
+    List<String> urls = minioService.generatePresignedPartUploadUrls(minioObjectId, uploadId, totalParts,
+        multipartPresignedUrlExpiryMinutes);
+
+    List<PartUploadUrl> partUrls = new ArrayList<>(totalParts);
+    for (int i = 0; i < totalParts; i++) {
+      partUrls.add(PartUploadUrl.builder()
+          .partNumber(i + 1)
+          .url(urls.get(i))
+          .build());
+    }
+
+    return MultipartInitUploadResponse.builder()
+        .fileId(fileMetadata.getId())
+        .uploadId(uploadId)
+        .partSizeBytes(partSizeBytes)
+        .totalParts(totalParts)
+        .partUrls(partUrls)
+        .build();
+  }
+
+  @Transactional
+  public void completeMultipartUpload(UUID fileId, CompleteMultipartUploadRequest request, UUID userId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId)
+        .orElseThrow(() -> new EntityNotFoundException("File not found"));
+
+    if (!file.getOwner().getId().equals(userId)) {
+      throw new SecurityException("User does not own this file");
+    }
+
+    if (file.getStatus() != FileStatus.PENDING) {
+      throw new IllegalStateException("El archivo no está pendiente de subida");
+    }
+
+    if (file.getUploadId() == null || !file.getUploadId().equals(request.getUploadId())) {
+      throw new IllegalArgumentException("uploadId inválido");
+    }
+
+    if (request.getParts() == null || request.getParts().isEmpty()) {
+      throw new IllegalArgumentException("Se requieren las partes y sus ETags");
+    }
+
+    List<Part> parts = request.getParts().stream()
+        .sorted((a, b) -> Integer.compare(a.getPartNumber(), b.getPartNumber()))
+        .map(p -> new Part(p.getPartNumber(), stripEtagQuotes(p.getEtag())))
+        .toList();
+
+    try {
+      minioService.completeMultipartUpload(file.getMinioObjectId(), file.getUploadId(), parts);
+      file.setStatus(FileStatus.UPLOADED);
+      file.setUploadId(null);
+      fileMetadataRepository.save(file);
+    } catch (Exception e) {
+      try {
+        minioService.abortMultipartUpload(file.getMinioObjectId(), file.getUploadId());
+      } catch (Exception abortEx) {
+        // Ignorar error de aborto; se deja la metadata PENDING para limpieza posterior
+      }
+      throw new IllegalStateException("Error al completar la subida multipart: " + e.getMessage(), e);
+    }
+  }
+
+  @Transactional
+  public void abortMultipartUpload(UUID fileId, String uploadId, UUID userId) {
+    FileMetadata file = fileMetadataRepository.findById(fileId)
+        .orElseThrow(() -> new EntityNotFoundException("File not found"));
+
+    if (!file.getOwner().getId().equals(userId)) {
+      throw new SecurityException("User does not own this file");
+    }
+
+    if (file.getUploadId() == null || !file.getUploadId().equals(uploadId)) {
+      throw new IllegalArgumentException("uploadId inválido");
+    }
+
+    minioService.abortMultipartUpload(file.getMinioObjectId(), file.getUploadId());
+    fileMetadataRepository.delete(file);
+  }
+
+  private String stripEtagQuotes(String etag) {
+    if (etag == null) {
+      return null;
+    }
+    return etag.replace("\"", "");
   }
 
   @Transactional(readOnly = true)

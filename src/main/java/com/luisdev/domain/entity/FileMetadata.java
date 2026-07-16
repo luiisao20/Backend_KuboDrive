@@ -55,4 +55,7 @@ public class FileMetadata {
   @Column(nullable = false, columnDefinition = "boolean default false")
   @Builder.Default
   private Boolean starred = false;
+
+  @Column(name = "upload_id")
+  private String uploadId;
 }
