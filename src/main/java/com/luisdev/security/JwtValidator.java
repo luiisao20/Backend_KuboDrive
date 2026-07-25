@@ -25,6 +25,13 @@ public class JwtValidator extends OncePerRequestFilter {
   private String secretKey;
 
   private String recoverToken(HttpServletRequest request) {
+    // 1. Intentar leer del Header Authorization
+    String authHeader = request.getHeader("Authorization");
+    if (authHeader != null && authHeader.startsWith("Bearer ")) {
+      return authHeader.substring(7);
+    }
+
+    // 2. Si no está en el header, buscar en las cookies
     if (request.getCookies() != null) {
       for (Cookie cookie : request.getCookies()) {
         if ("jwt".equals(cookie.getName())) {

@@ -18,20 +18,20 @@ public class CookiesUtils {
   public static ResponseCookie createJwtCookie(String jwt, long maxAge) {
     return ResponseCookie.from("jwt", jwt)
         .httpOnly(true)
-        .secure(true)
+        .secure(false)
         .path("/")
         .maxAge(maxAge)
-        .sameSite("None")
+        .sameSite("Lax")
         .build();
   }
 
   public static ResponseCookie deleteJwtCookie() {
     return ResponseCookie.from("jwt", "")
         .httpOnly(true)
-        .secure(true)
+        .secure(false)
         .path("/")
         .maxAge(0)
-        .sameSite("None")
+        .sameSite("Lax")
         .build();
   }
 }

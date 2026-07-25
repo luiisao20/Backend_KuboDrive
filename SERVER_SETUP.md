@@ -52,3 +52,26 @@ Por lo tanto, es estrictamente necesario anclar la versión de MinIO en el `dock
 image: minio/minio:RELEASE.2023-08-31T15-31-16Z
 ```
 Si se usa `latest` o una versión de 2024, el contenedor fallará en un bucle infinito con el error: `Fatal glibc error: CPU does not support x86-64-v2`.
+
+## 5. Configuración de Red Segura y HTTPS (Tailscale)
+Tailscale permite acceder al servidor desde cualquier lugar sin abrir puertos en el router, y provee certificados HTTPS gratuitos.
+
+**Para asegurar que Tailscale inicie automáticamente con el sistema:**
+1. Habilitar y arrancar el demonio:
+   ```bash
+   sudo systemctl enable tailscaled
+   sudo systemctl start tailscaled
+   ```
+2. Autenticar la sesión a nivel de sistema:
+   ```bash
+   sudo tailscale up
+   ```
+3. **CRÍTICO:** Ir a la [consola de administración de Tailscale](https://login.tailscale.com/admin/machines), buscar el servidor (Sony Vaio), hacer clic en los tres puntos y seleccionar **Disable key expiry**. Esto evita que el servidor se desconecte cada 180 días de forma silenciosa.
+
+**Para habilitar HTTPS:**
+1. Habilitar **MagicDNS** y **HTTPS Certificates** en la pestaña DNS de la consola web de Tailscale.
+2. Identificar el dominio asignado: `tailscale status` (ej. `mi-servidor.cola-zorro.ts.net`).
+3. Generar los certificados en el servidor:
+   ```bash
+   sudo tailscale cert mi-servidor.cola-zorro.ts.net
+   ```
