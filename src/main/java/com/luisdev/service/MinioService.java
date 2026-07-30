@@ -25,22 +25,33 @@ public class MinioService {
 
   private final MinioClient minioClient;
   private final MinioAsyncClient minioAsyncClient;
+  private final MinioClient externalMinioClient;
   private final String bucketName;
 
   public MinioService(
-      @Value("${minio.url}") String url,
+      @Value("${minio.url}") String internalUrl,
+      @Value("${minio.external-url}") String externalUrl,
       @Value("${minio.access-key}") String accessKey,
       @Value("${minio.secret-key}") String secretKey,
       @Value("${minio.bucket-name}") String bucketName) {
 
     this.minioClient = MinioClient.builder()
-        .endpoint(url)
+        .endpoint(internalUrl)
         .credentials(accessKey, secretKey)
+        .region("us-east-1")
         .build();
     this.minioAsyncClient = MinioAsyncClient.builder()
-        .endpoint(url)
+        .endpoint(internalUrl)
         .credentials(accessKey, secretKey)
+        .region("us-east-1")
         .build();
+        
+    this.externalMinioClient = MinioClient.builder()
+        .endpoint(externalUrl)
+        .credentials(accessKey, secretKey)
+        .region("us-east-1")
+        .build();
+
     this.bucketName = bucketName;
   }
 
@@ -62,7 +73,7 @@ public class MinioService {
 
   public String generatePresignedUploadUrl(String minioObjectId) {
     try {
-      return minioClient.getPresignedObjectUrl(
+      return externalMinioClient.getPresignedObjectUrl(
           GetPresignedObjectUrlArgs.builder()
               .method(Method.PUT)
               .bucket(bucketName)
@@ -79,7 +90,7 @@ public class MinioService {
       Map<String, String> reqParams = new HashMap<>();
       reqParams.put("response-content-disposition", "attachment; filename=\"" + originalName + "\"");
 
-      return minioClient.getPresignedObjectUrl(
+      return externalMinioClient.getPresignedObjectUrl(
           GetPresignedObjectUrlArgs.builder()
               .method(Method.GET)
               .bucket(bucketName)
@@ -141,7 +152,7 @@ public class MinioService {
       queryParams.put("uploadId", uploadId);
       queryParams.put("partNumber", String.valueOf(partNumber));
 
-      return minioClient.getPresignedObjectUrl(
+      return externalMinioClient.getPresignedObjectUrl(
           GetPresignedObjectUrlArgs.builder()
               .method(Method.PUT)
               .bucket(bucketName)

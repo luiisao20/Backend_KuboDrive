@@ -1,6 +1,8 @@
 package com.luisdev.config;
 
 import com.luisdev.security.JwtValidator;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -20,9 +22,11 @@ import java.util.List;
 @Configuration
 public class GlobalConfig {
   private final JwtValidator jwtValidator;
+  private final String corsAllowedOrigin;
 
-  public GlobalConfig(JwtValidator jwtValidator) {
+  public GlobalConfig(JwtValidator jwtValidator, @Value("${cors.allowed-origin}") String corsAllowedOrigin) {
     this.jwtValidator = jwtValidator;
+    this.corsAllowedOrigin = corsAllowedOrigin;
   }
 
   @Bean
@@ -54,7 +58,7 @@ public class GlobalConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration config = new CorsConfiguration();
-    config.setAllowedOriginPatterns(List.of("*"));
+    config.setAllowedOriginPatterns(List.of(corsAllowedOrigin));
     config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     config.setAllowedHeaders(List.of("*"));
     config.setExposedHeaders(List.of("New-Token"));
