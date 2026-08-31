@@ -63,18 +63,18 @@ public class AuthController {
     User user = userService.findByEmail(request.getEmail());
     return ResponseEntity.ok()
         .header(HttpHeaders.SET_COOKIE, cookie.toString())
-        .body(new AuthResponse("Login exitoso", request.getEmail(), user.getFirstName(), user.getLastName()));
+        .body(new AuthResponse("Login exitoso", request.getEmail(), user.getFirstName(), user.getLastName(), roleNameOf(user)));
   }
 
   @GetMapping("/validate")
   public ResponseEntity<AuthResponse> validate() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
-      return ResponseEntity.status(401).body(new AuthResponse("No autorizado", null, null, null));
+      return ResponseEntity.status(401).body(new AuthResponse("No autorizado", null, null, null, null));
     }
 
     User user = userService.findByEmail(auth.getName());
-    return ResponseEntity.ok(new AuthResponse("Sesión válida", auth.getName(), user.getFirstName(), user.getLastName()));
+    return ResponseEntity.ok(new AuthResponse("Sesión válida", auth.getName(), user.getFirstName(), user.getLastName(), roleNameOf(user)));
   }
 
   @PostMapping("/logout")
@@ -86,7 +86,7 @@ public class AuthController {
 
     return ResponseEntity.ok()
         .header(HttpHeaders.SET_COOKIE, cookie.toString())
-        .body(new AuthResponse("Logout exitoso", null, null, null));
+        .body(new AuthResponse("Logout exitoso", null, null, null, null));
   }
 
   @PutMapping("/update-password")
@@ -97,6 +97,17 @@ public class AuthController {
     }
 
     userService.updatePassword(auth.getName(), request.getOldPassword(), request.getNewPassword());
-    return ResponseEntity.ok(new AuthResponse("Contraseña actualizada exitosamente", auth.getName(), null, null));
+    return ResponseEntity.ok(new AuthResponse("Contraseña actualizada exitosamente", auth.getName(), null, null, null));
+  }
+
+  /**
+   * Role name for the client, or null when the row predates roles.
+   *
+   * A UI convenience only — see AuthResponse. Null-safe because
+   * User.role has no NOT NULL constraint, so accounts created before
+   * registerUser started defaulting it can still exist in the database.
+   */
+  private static String roleNameOf(User user) {
+    return user.getRole() != null ? user.getRole().name() : null;
   }
 }
