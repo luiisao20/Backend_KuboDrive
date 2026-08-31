@@ -7,7 +7,7 @@ RUN mvn dependency:go-offline
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-FROM openjdk:27-ea-20-jdk-oraclelinux10 as runtime
+FROM eclipse-temurin:21-jre-jammy as runtime
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 EXPOSE 8080
